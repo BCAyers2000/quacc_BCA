@@ -214,6 +214,12 @@ def prepare_calc(
     calc_swaps["input_data"] = Namelist(calc_swaps.get("input_data"))
 
     binary = template.binary if template else "pw"
+    use_environ = getattr(template, "use_environ", False) if template else False
+    
+    environ_params = calc_swaps.pop("environ_params", None)
+    if environ_params is None:
+        environ_params = calc_defaults.pop("environ_params", None)
+
 
     if binary in ALL_KEYS:
         calc_defaults["input_data"].to_nested(binary=binary, **calc_defaults)
@@ -222,11 +228,15 @@ def prepare_calc(
     calc_defaults = remove_conflicting_kpts_kspacing(calc_defaults, calc_swaps)
     calc_flags = recursive_dict_merge(calc_defaults, calc_swaps)
 
+    if environ_params:
+        calc_flags["environ_params"] = environ_params
+
     return Espresso(
         input_atoms=atoms,
         preset=preset,
         template=template,
         profile=profile,
+        use_environ=use_environ,
         **calc_flags,
     )
 
@@ -263,6 +273,6 @@ def prepare_copy(
 
     if isinstance(copy_files, list):
         exact_files_to_copy = prepare_copy_files(calc_params, binary=binary)
-        return dict.fromkeys(copy_files, exact_files_to_copy)
+        return {source: exact_files_to_copy for source in copy_files}
 
     return copy_files

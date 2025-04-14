@@ -49,29 +49,8 @@ class EspressoTemplate(EspressoTemplate_):
         test_run: bool = False,
         autorestart: bool = False,
         outdir: str | Path | None = None,
+        use_environ: bool = False,
     ) -> None:
-        """
-        Initialize the Espresso template.
-
-        Parameters
-        ----------
-        binary
-            The name of the espresso binary to use. This is used to set the
-            input/output file names. By default we fall back to "pw".
-        test_run
-            If True, a test run is performed to check that the calculation
-            input_data is correct or to generate some files/info if needed.
-        autorestart
-            If True, the calculation will automatically switch to 'restart'
-            if this calculator performs more than one run. (ASE-relax/MD/NEB)
-        outdir
-            The directory that will be used as `outdir` in the input_data. If
-            None, the directory will be set to the current working directory.
-
-        Returns
-        -------
-        None
-        """
         super().__init__()
 
         self.inputname = f"{binary}.in"
@@ -83,6 +62,7 @@ class EspressoTemplate(EspressoTemplate_):
         self.nruns = 0
         self.autorestart = autorestart
         self.outdir = outdir
+        self.use_environ = use_environ
 
     def write_input(
         self,
@@ -92,27 +72,6 @@ class EspressoTemplate(EspressoTemplate_):
         parameters: dict[str, Any],
         properties: Any,
     ) -> None:
-        """
-        The function that should be used instead of the one in ASE EspressoTemplate to
-        write the input file. It calls a customly defined write function.
-
-        Parameters
-        ----------
-        profile
-            The profile to use.
-        directory
-            The directory in which to write the input file.
-        atoms
-            The atoms object to use.
-        parameters
-            The parameters to use.
-        properties
-            Special ASE properties
-
-        Returns
-        -------
-        None
-        """
         directory = Path(directory)
         self._output_handler(parameters, directory)
         parameters = self._sanity_checks(parameters)
@@ -135,6 +94,10 @@ class EspressoTemplate(EspressoTemplate_):
                 properties=properties,
                 **parameters,
             )
+            if self.use_environ:
+                environ_params = parameters.get("environ_params", {})
+                with Path(directory, "environ.in").open(mode="w") as f:
+                    write_fortran_namelist(f, environ_params)
         elif self.binary in ["ph", "phcg"]:
             with Path(directory, self.inputname).open(mode="w") as fd:
                 write_espresso_ph(fd=fd, properties=properties, **parameters)
@@ -349,60 +312,36 @@ class EspressoTemplate(EspressoTemplate_):
 
 
 class Espresso(GenericFileIOCalculator):
-    """
-    A wrapper around the ASE Espresso calculator that adjusts input_data
-    parameters and allows for the use of presets.
-    Templates are used to set the binary and input/output file names.
-    """
-
     def __init__(
         self,
         input_atoms: Atoms | None = None,
         preset: str | Path | None = None,
         template: EspressoTemplate | None = None,
+        use_environ: bool = False,
+        environ_params: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        """
-        Initialize the Espresso calculator.
-
-        Parameters
-        ----------
-        input_atoms
-            The input Atoms object to be used for the calculation.
-        preset
-            A YAML file containing a list of parameters to use as a "preset"
-            for the calculator. If `preset` has a .yml or .yaml file extension, the
-            path to this file will be used directly. If `preset` is a string without
-            an extension, the corresponding YAML file will be assumed to be in the
-            `ESPRESSO_PRESET_DIR`. Any user-supplied calculator **kwargs will
-            override any corresponding preset values.
-        template
-            ASE calculator templace which can be used to specify which espresso
-            binary will be used in the calculation. This is taken care of by recipe
-            in most cases.
-        **kwargs
-            Additional arguments to be passed to the Espresso calculator. Takes all valid
-            ASE calculator arguments, such as `input_data` and `kpts`. Refer to
-            [ase.calculators.espresso.Espresso][] for details. Note that the full input
-            must be described; use `{"system":{"ecutwfc": 60}}` and not the `{"ecutwfc": 60}`
-            short-hand.
-
-        Returns
-        -------
-        None
-        """
         self.input_atoms = input_atoms or Atoms()
         self.preset = preset
         self.kwargs = kwargs
         self.user_calc_params = {}
         self._settings = get_settings()
-        template = template or EspressoTemplate("pw")
+        template = template or EspressoTemplate("pw", use_environ=use_environ)
         self._binary = template.binary
         full_path = Path(
             self._settings.ESPRESSO_BIN_DIR,
             self._settings.ESPRESSO_BINARIES[self._binary],
         )
         self._bin_path = str(full_path)
+
+        if environ_params:
+            self.kwargs["environ_params"] = environ_params
+        else:
+            self.kwargs["environ_params"] = {
+                "environ": {},
+                "boundary": {},
+                "electrostatic": {},
+            }
 
         if template._ase_known_binary:
             self._cleanup_params()
@@ -425,9 +364,18 @@ class Espresso(GenericFileIOCalculator):
         )
         cmd_suffix = self._settings.ESPRESSO_PARALLEL_CMD[1]
 
-        profile = EspressoProfile(
-            f"{cmd_prefix} {self._bin_path} {cmd_suffix}", self._pseudo_path
-        )
+        command = f"{cmd_prefix} {self._bin_path} {cmd_suffix}"
+        if use_environ and " --environ" not in command:
+            parts = command.split()
+            for i, part in enumerate(parts):
+                if part.endswith(".x"):
+                    parts.insert(i + 1, "--environ")
+                    command = " ".join(parts)
+                    break
+            else:
+                command += " --environ"
+
+        profile = EspressoProfile(command, self._pseudo_path)
 
         super().__init__(
             template=template,

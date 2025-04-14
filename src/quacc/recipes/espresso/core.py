@@ -50,6 +50,8 @@ def static_job(
     ) = None,
     prev_outdir: SourceDirectory | None = None,
     additional_fields: dict[str, Any] | None = None,
+    use_environ: bool = False,
+    environ_params: dict[str, Any] | None = None,
     **calc_kwargs,
 ) -> RunSchema:
     """
@@ -92,10 +94,13 @@ def static_job(
     calc_defaults = BASE_SET_METAL if check_is_metal(atoms) else BASE_SET_NON_METAL
     calc_defaults["input_data"]["control"] = {"calculation": "scf"}
 
+    if environ_params:
+        calc_defaults["environ_params"] = environ_params
+
     return run_and_summarize(
         atoms,
         preset=preset,
-        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir),
+        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir,  use_environ=use_environ),
         calc_defaults=calc_defaults,
         calc_swaps=calc_kwargs,
         additional_fields={"name": "pw.x Static"} | (additional_fields or {}),
@@ -117,6 +122,8 @@ def relax_job(
     ) = None,
     prev_outdir: SourceDirectory | None = None,
     additional_fields: dict[str, Any] | None = None,
+    use_environ: bool = False,
+    environ_params: dict[str, Any] | None = None,
     **calc_kwargs,
 ) -> RunSchema:
     """
@@ -163,10 +170,13 @@ def relax_job(
         "calculation": "vc-relax" if relax_cell else "relax"
     }
 
+    if environ_params:
+        calc_defaults["environ_params"] = environ_params
+
     return run_and_summarize(
         atoms,
         preset=preset,
-        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir),
+        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir, use_environ=use_environ),
         calc_defaults=calc_defaults,
         calc_swaps=calc_kwargs,
         additional_fields={"name": "pw.x Relax"} | (additional_fields or {}),
@@ -189,6 +199,8 @@ def ase_relax_job(
     ) = None,
     prev_outdir: SourceDirectory | None = None,
     additional_fields: dict[str, Any] | None = None,
+    use_environ: bool = False,
+    environ_params: dict[str, Any] | None = None,
     **calc_kwargs,
 ) -> RunSchema:
     """
@@ -243,11 +255,13 @@ def ase_relax_job(
     }
 
     opt_defaults = {"optimizer": BFGSLineSearch, "relax_cell": relax_cell}
+    if environ_params:
+        calc_defaults["environ_params"] = environ_params
 
     return run_and_summarize_opt(
         atoms,
         preset=preset,
-        template=EspressoTemplate("pw", autorestart=autorestart, outdir=prev_outdir),
+        template=EspressoTemplate("pw", autorestart=autorestart, outdir=prev_outdir,  use_environ=use_environ),
         calc_defaults=calc_defaults,
         calc_swaps=calc_kwargs,
         opt_defaults=opt_defaults,
@@ -337,6 +351,8 @@ def non_scf_job(
     preset: str | None = "sssp_1.3.0_pbe_efficiency",
     test_run: bool = False,
     additional_fields: dict[str, Any] | None = None,
+    use_environ: bool = False,
+    environ_params: dict[str, Any] | None = None,
     **calc_kwargs,
 ) -> RunSchema:
     """
@@ -384,7 +400,7 @@ def non_scf_job(
     return run_and_summarize(
         atoms,
         preset=preset,
-        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir),
+        template=EspressoTemplate("pw", test_run=test_run, outdir=prev_outdir, use_environ=use_environ),
         calc_defaults=calc_defaults,
         calc_swaps=calc_kwargs,
         additional_fields={"name": "pw.x Non SCF"} | (additional_fields or {}),
